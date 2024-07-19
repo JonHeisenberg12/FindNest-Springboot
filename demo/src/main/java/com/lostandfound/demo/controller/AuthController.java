@@ -3,19 +3,20 @@ package com.lostandfound.demo.controller;
 import com.lostandfound.demo.model.User;
 import com.lostandfound.demo.repository.UserRepository;
 import com.lostandfound.demo.util.JwtTokenUtil;
-
-import java.util.Optional;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api")
@@ -28,9 +29,6 @@ public class AuthController {
     private JwtTokenUtil jwtTokenUtil;
 
     @Autowired
-    private UserDetailsService userDetailsService;
-
-    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -39,31 +37,39 @@ public class AuthController {
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
 
     @PostMapping("/authenticate")
-    public ResponseEntity<?> createAuthenticationToken(@RequestBody AuthenticationRequest authenticationRequest) throws Exception {
+    public ResponseEntity<?> authenticate(@RequestBody AuthenticationRequest authenticationRequest) {
         try {
-            authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(authenticationRequest.getEmail(), authenticationRequest.getPassword())
+            Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                    authenticationRequest.getEmail(),
+                    authenticationRequest.getPassword()
+                )
             );
-        } catch (Exception e) {
-            logger.error("Authentication failed for email: " + authenticationRequest.getEmail(), e);
-            throw new Exception("Incorrect email or password", e);
+            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+            final String jwt = jwtTokenUtil.generateToken(userDetails);
+
+            ResponseCookie jwtCookie = ResponseCookie.from("jwt", jwt)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .build();
+
+            return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, jwtCookie.toString())
+                .body(new AuthenticationResponse(jwt));
+        } catch (AuthenticationException e) {
+            logger.error("Authentication failed: " + e.getMessage());
+            return ResponseEntity.status(401).body("Invalid email or password");
         }
-
-        final UserDetails userDetails = userDetailsService.loadUserByUsername(authenticationRequest.getEmail());
-        final String jwt = jwtTokenUtil.generateToken(userDetails);
-
-        return ResponseEntity.ok(new AuthenticationResponse(jwt));
     }
 
     @PostMapping("/createuser")
     public ResponseEntity<?> createUser(@RequestBody User user, @RequestHeader("Authorization") String token) {
-        if (token.startsWith("Bearer ")) {
-            token = token.substring(7);
-        } else {
+        if (!token.startsWith("Bearer ")) {
             return ResponseEntity.badRequest().body("Invalid token format");
         }
-        
-        logger.info("Token received: " + token);
+        token = token.substring(7);
         
         String department = user.getDepartment();
         String[] allowedDepartments = {"SSG", "SSO", "SSD"};
@@ -90,19 +96,20 @@ public class AuthController {
 
         Optional<User> existingUser = userRepository.findByUsername(user.getUsername());
         if (existingUser.isPresent()) {
-            return ResponseEntity.badRequest().body("Username or email is already in use");
+            return ResponseEntity.badRequest().body("Username is already in use");
         }
 
         existingUser = userRepository.findByEmail(user.getEmail());
         if (existingUser.isPresent()) {
-            return ResponseEntity.badRequest().body("Username or email is already in use");
+            return ResponseEntity.badRequest().body("Email is already in use");
         }
 
         user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-
         String role = jwtTokenUtil.getRoleFromToken(token);
         if ("superAdmin".equals(role) && user.getRole() != null) {
             user.setRole(user.getRole());
+        } else {
+            user.setRole(User.Role.staff); // Default to staff if not specified
         }
 
         userRepository.save(user);
@@ -114,7 +121,6 @@ class AuthenticationRequest {
     private String email;
     private String password;
 
-    // Getters and setters
     public String getEmail() {
         return email;
     }
