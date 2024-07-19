@@ -57,6 +57,7 @@ public class ItemController {
         item.setDescription(itemDetails.getDescription());
         item.setImageUrls(itemDetails.getImageUrls());
         item.setCategory(itemDetails.getCategory());
+        item.setDepartment(itemDetails.getDepartment());
         item.setUpdatedAt(new Date());
         Item updatedItem = itemRepository.save(item);
         return ResponseEntity.ok(updatedItem);

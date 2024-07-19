@@ -22,6 +22,7 @@ public class Item {
     private List<String> imageUrls;
     private String category;
     private String status = "available";
+    private String department;
     private String claimantName;
     private Date claimedDate;
 
@@ -111,6 +112,14 @@ public class Item {
         this.claimantName = claimantName;
     }
 
+    public String getDepartment() {  // Getter for department
+        return department;
+    }
+
+    public void setDepartment(String department) {  // Setter for department
+        this.department = department;
+    }
+    
     public Date getClaimedDate() {
         return claimedDate;
     }
